@@ -88,6 +88,37 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
     event Redeemed(address indexed store, address indexed beneficiary, uint256 indexed tokenId, uint256 amount);
 
     /**
+     * @notice Emitted when a donor withdraws escrowed ETH by burning TOKEN_MONEY.
+     * @dev Mirrors a successful pull of native ETH from the contract’s free pool.
+     * @param donor  The donor address that burned TOKEN_MONEY and received ETH.
+     * @param amountWei  Amount of ETH withdrawn, in wei, equal to units burned.
+     *
+     * Effects:
+     * - Signals an L1/L2 accounting change where TOKEN_MONEY supply decreases and
+     *   contract ETH decreases by the same amount.
+     *
+     * Example:
+     * - Donor calls donorWithdrawEther(1 ether); upon success this event logs
+     *   (donor=0xAB..., amountWei=1e18).
+     */
+    event DonorWithdrawal(address indexed donor, uint256 amountWei);
+
+    /**
+     * @notice Emitted when a store withdraws accrued ETH reimbursements.
+     * @dev Mirrors a successful pull-payment that settles previously redeemed units.
+     * @param store  The store address receiving ETH.
+     * @param amountWei  Amount of ETH paid out, in wei, debited from storePendingWei.
+     *
+     * Effects:
+     * - Decreases storePendingWei[store] by amountWei and contract ETH by amountWei.
+     *
+     * Example:
+     * - Store calls storeWithdrawEther(0.5 ether); upon success this event logs
+     *   (store=0xCD..., amountWei=5e17).
+     */
+    event StoreWithdrawal(address indexed store, uint256 amountWei);
+
+    /**
      * @notice Contract constructor that sets the base URI for token metadata.
      * @param uri_ The base metadata URI, with `{id}` placeholder for token IDs.
      * @dev The deployer is the initial owner (Ownable). Using OpenZeppelin ERC1155 to ensure full standard compliance.
@@ -134,6 +165,54 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
         _mint(msg.sender, TOKEN_MONEY, amount, "");
         // ERC1155 TransferSingle event emitted by _mint.
     }
+
+    /**
+     * @notice Burn TOKEN_MONEY and withdraw native ETH 1:1 to the caller.
+     * @dev Access: only addresses with StakeholderType.Donor.
+     *
+     * Summary
+     * - Converts the caller’s TOKEN_MONEY balance back into ETH at a fixed 1:1 rate.
+     * - Uses pull-payment to the caller via `.call{value: amount}("")`.
+     *
+     * Requirements
+     * - Caller role must be Donor.
+     * - `amount > 0`.
+     * - Caller must hold at least `amount` units of TOKEN_MONEY (else _burn reverts).
+     * - Low-level ETH transfer must succeed.
+     *
+     * Parameters
+     * - `amount` (uint256): Amount of ETH to withdraw (and units to burn), in wei.
+     *
+     * Global state read
+     * - `roles[msg.sender]`.
+     *
+     * Global state written
+     * - ERC-1155 balance of TOKEN_MONEY for `msg.sender` (decrement via `_burn`).
+     * - Contract ETH balance (decrement by `amount`).
+     *
+     * Events
+     * - Emits `DonorWithdrawal(msg.sender, amount)` on success.
+     * - Also emits ERC-1155 `TransferSingle` for the burn.
+     *
+     * Edge cases handled
+     * - Zero amount rejected.
+     * - Non-donor caller rejected.
+     * - ETH transfer failure reverts the whole call.
+     *
+     * Example
+     * - Pre: donor has 3 ether worth of TOKEN_MONEY, contract holds ≥3 ETH.
+     * - Call: donorWithdrawEther(2 ether).
+     * - Post: donor’s TOKEN_MONEY -= 2e18; donor’s ETH += 2e18; event emitted.
+     */
+    function donorWithdrawEther(uint256 amount) external nonReentrant {
+        require(roles[msg.sender] == StakeholderType.Donor, "not donor");
+        require(amount > 0, "amount=0");
+        _burn(msg.sender, TOKEN_MONEY, amount);
+        (bool ok,) = payable(msg.sender).call{value: amount}("");
+        require(ok, "eth send failed");
+        emit DonorWithdrawal(msg.sender, amount);
+    }
+
 
     /**
      * @notice Transfers tokenised money from a Donor or Organisation to an Organisation (donation assignment).
@@ -266,6 +345,55 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
         emit Assigned(msg.sender, beneficiary, tokenId, amount);
     }
 
+    /**
+     * @notice Withdraw previously accrued ETH reimbursements for the calling store.
+     * @dev Access: only addresses with StakeholderType.Store.
+     *
+     * Summary
+     * - Pays out part or all of `storePendingWei[msg.sender]` using a pull-payment.
+     * - Does not change token balances; only settles ETH owed for past redemptions.
+     *
+     * Requirements
+     * - Caller role must be Store.
+     * - `amount > 0`.
+     * - `storePendingWei[msg.sender] >= amount`.
+     * - Low-level ETH transfer must succeed.
+     *
+     * Parameters
+     * - `amount` (uint256): Amount of ETH to withdraw, in wei.
+     *
+     * Global state read
+     * - `roles[msg.sender]`, `storePendingWei[msg.sender]`.
+     *
+     * Global state written
+     * - `storePendingWei[msg.sender]` decreased by `amount`.
+     * - Contract ETH balance decreased by `amount`.
+     *
+     * Events
+     * - Emits `StoreWithdrawal(msg.sender, amount)` on success.
+     *
+     * Edge cases handled
+     * - Zero amount rejected.
+     * - Non-store caller rejected.
+     * - Insufficient pending balance rejected.
+     * - ETH transfer failure reverts the whole call.
+     *
+     * Example
+     * - Pre: storePendingWei[store] = 1 ether.
+     * - Call: storeWithdrawEther(0.4 ether).
+     * - Post: storePendingWei[store] = 0.6 ether; store receives 0.4 ether; event emitted.
+     */
+    function storeWithdrawEther(uint256 amount) external nonReentrant {
+    require(roles[msg.sender] == StakeholderType.Store, "not store");
+    require(amount > 0, "amount=0");
+    uint256 owed = storePendingWei[msg.sender];
+    require(owed >= amount, "insufficient pending");
+    storePendingWei[msg.sender] = owed - amount;
+    (bool ok,) = payable(msg.sender).call{value: amount}("");
+    require(ok, "eth send failed");
+    emit StoreWithdrawal(msg.sender, amount);
+    }
+    
     /**
      * @notice Redeems tokenised goods or vouchers at a Store for a Beneficiary, enforcing usage limits.
      * @dev Allows a Store to burn a Beneficiary's goods/voucher tokens when the Beneficiary redeems them (e.g., receives the actual goods).
