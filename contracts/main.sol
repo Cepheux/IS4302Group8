@@ -45,6 +45,9 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
     /// @notice Tracks how much of each token type each store has redeemed (for per-store limit enforcement).
     mapping(uint256 => mapping(address => uint256)) private _storeRedeemed;
 
+    /// @notice Tracks pending ETH reimbursements owed to each store for redeemed tokens.
+    mapping(address => uint256) public storePendingWei;
+
     /// @notice Emitted when an address is assigned a stakeholder role.
     /// @param account The address being assigned a role.
     /// @param role The StakeholderType value representing the role.
@@ -442,6 +445,8 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
         _burn(beneficiary, tokenId, amount);
         _beneficiaryRedeemed[tokenId][beneficiary] = newBeneficiaryTotal;
         _storeRedeemed[tokenId][msg.sender] = newStoreTotal;
+        // Increment pending ETH reimbursement for the store (1:1 ratio with redeemed tokens)
+        storePendingWei[msg.sender] += amount;
         emit Redeemed(msg.sender, beneficiary, tokenId, amount);
     }
 }
