@@ -77,26 +77,39 @@ describe('AidDistribution Contract Tests', function () {
       ).to.be.revertedWith('Amount must be greater than 0')
     })
 
-    it('Should allow donors to withdraw ETH by burning tokenised money', async function () {
-      // First deposit money
-      await aidDistribution
-        .connect(donor)
-        .depositMoney(ONE_ETH, { value: ONE_ETH })
+    it('Should allow donors to withdraw ETH by burning tokenised money (with gas measurement)', async function () {
+      // Deposit
+      await aidDistribution.connect(donor).depositMoney(ONE_ETH, { value: ONE_ETH });
 
-      const balanceBefore = await ethers.provider.getBalance(donor.address)
+      const balanceBefore = await ethers.provider.getBalance(donor.address);
 
-      // Withdraw half
-      await aidDistribution.connect(donor).donorWithdrawEther(HALF_ETH)
+      const tx = await aidDistribution.connect(donor).donorWithdrawEther(HALF_ETH);
+      const receipt = await tx.wait();
 
-      const balanceAfter = await ethers.provider.getBalance(donor.address)
-      const tokenBalance = await aidDistribution.balanceOf(
-        donor.address,
-        TOKEN_MONEY
-      )
+      const gasUsed = receipt.gasUsed;
+      const gasPrice = tx.gasPrice;
+      const gasCost = gasUsed * gasPrice;
 
-      expect(tokenBalance).to.equal(HALF_ETH)
-      // Note: balanceAfter might be less due to gas fees
-    })
+      const balanceAfter = await ethers.provider.getBalance(donor.address);
+
+      const netChange = balanceAfter + gasCost - balanceBefore;
+
+      console.log(`
+      --- Gas Usage Breakdown ---
+      Gas Used: ${gasUsed.toString()}
+      Gas Price: ${gasPrice.toString()}
+      Gas Cost: ${gasCost.toString()}
+      Net ETH Gained (approx): ${netChange.toString()}
+      ----------------------------
+      `);
+
+      // Verify token balance
+      const tokenBalance = await aidDistribution.balanceOf(donor.address, TOKEN_MONEY);
+      expect(tokenBalance).to.equal(HALF_ETH);
+
+      // Check that donor gained ~0.5 ETH (minus gas)
+      expect(netChange).to.be.closeTo(HALF_ETH, ethers.parseEther("0.001"));
+    });
 
     it('Should not allow non-donors to withdraw ETH', async function () {
       await expect(
