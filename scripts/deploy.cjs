@@ -1,49 +1,60 @@
 // scripts/deploy.cjs
 const hre = require("hardhat");
-const { ethers } = hre;
 
 async function main() {
-  const [deployer, org1, org2, storeCandidate] = await ethers.getSigners();
+  const [deployer] = await hre.ethers.getSigners();
+  console.log("Deploying contracts with account:", deployer.address);
 
-  // 1. AidDistribution
-  const AidDistribution = await ethers.getContractFactory("AidDistribution");
-  const aid = await AidDistribution.deploy("https://example.com/{id}.json");
-  await aid.waitForDeployment();
-  const aidAddress = await aid.getAddress();
+  // 1. Deploy MockSGD
+  console.log("\n1. Deploying MockSGD...");
+  const MockSGD = await hre.ethers.getContractFactory("MockSGD");
+  const mockSGD = await MockSGD.deploy();
+  await mockSGD.waitForDeployment();
+  const mockSGDAddress = await mockSGD.getAddress();
+  console.log("MockSGD deployed to:", mockSGDAddress);
 
-  // 2. GovernanceToken
-  const GovernanceToken = await ethers.getContractFactory("GovernanceToken");
-  const gov = await GovernanceToken.deploy();
-  await gov.waitForDeployment();
-  const govAddress = await gov.getAddress();
+  // 2. Deploy AidDistribution
+  console.log("\n2. Deploying AidDistribution...");
+  const AidDistribution = await hre.ethers.getContractFactory("AidDistribution");
+  const aidDistribution = await AidDistribution.deploy(mockSGDAddress);
+  await aidDistribution.waitForDeployment();
+  const aidAddress = await aidDistribution.getAddress();
+  console.log("AidDistribution deployed to:", aidAddress);
 
-  // 3. StoreDao(governanceToken, aid)
-  const StoreDao = await ethers.getContractFactory("StoreDao");
-  const dao = await StoreDao.deploy(govAddress, aidAddress);
-  await dao.waitForDeployment();
-  const daoAddress = await dao.getAddress();
+  // 3. Deploy GovernanceToken
+  console.log("\n3. Deploying GovernanceToken...");
+  const GovernanceToken = await hre.ethers.getContractFactory("GovernanceToken");
+  const governanceToken = await GovernanceToken.deploy();
+  await governanceToken.waitForDeployment();
+  const govTokenAddress = await governanceToken.getAddress();
+  console.log("GovernanceToken deployed to:", govTokenAddress);
 
-  // 4. Wire DAO into AidDistribution
-  await (await aid.setDaoContract(daoAddress)).wait();
+  // 4. Deploy StoreDao
+  console.log("\n4. Deploying StoreDao...");
+  const StoreDao = await hre.ethers.getContractFactory("StoreDao");
+  const storeDao = await StoreDao.deploy(govTokenAddress, aidAddress);
+  await storeDao.waitForDeployment();
+  const daoDddress = await storeDao.getAddress();
+  console.log("StoreDao deployed to:", daoDddress);
 
-  // 5. Mint governance tokens to orgs
-  await (await gov.mint(org1.address, ethers.parseEther("1"))).wait();
-  await (await gov.mint(org2.address, ethers.parseEther("1"))).wait();
+  // 5. Set DAO contract in AidDistribution
+  console.log("\n5. Setting DAO contract in AidDistribution...");
+  const tx = await aidDistribution.setDaoContract(daoDddress);
+  await tx.wait();
+  console.log("DAO contract set successfully");
 
-  // 6. Mark orgs as Organisations (StakeholderType = 2)
-  await (await aid.setRole(org1.address, 2)).wait();
-  await (await aid.setRole(org2.address, 2)).wait();
-
-  console.log("Deployer        :", deployer.address);
-  console.log("Org1            :", org1.address);
-  console.log("Org2            :", org2.address);
-  console.log("Store candidate :", storeCandidate.address);
-  console.log("AidDistribution :", aidAddress);
-  console.log("GovernanceToken :", govAddress);
-  console.log("StoreDao        :", daoAddress);
+  // Summary
+  console.log("\n=== Deployment Summary ===");
+  console.log("MockSGD:", mockSGDAddress);
+  console.log("AidDistribution:", aidAddress);
+  console.log("GovernanceToken:", govTokenAddress);
+  console.log("StoreDao:", daoDddress);
+  console.log("Deployer:", deployer.address);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
