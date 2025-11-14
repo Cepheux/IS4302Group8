@@ -1,34 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 /**
  * @title AidDistribution
- * @notice ERC-1155 contract to manage tokenised donation money, physical goods, and vouchers in a charitable aid system.
+ * @notice ERC-20 contract (AID_TOKEN) to manage tokenised donation money in a charitable aid system.
  */
-contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
+contract AidDistribution is ERC20, Ownable, ReentrancyGuard {
     enum StakeholderType { None, Donor, Organisation, Beneficiary, Store }
     
     mapping(address => StakeholderType) public roles;
 
-    uint256 public constant TOKEN_MONEY = 0;
-
-    uint256 private _nextTokenId = 1;
-
-    struct ItemType {
-        bool isVoucher;
-        uint256 expiry;
-        address allowedStore;
-        uint256 beneficiaryLimit;
-        uint256 storeLimit;
-    }
-
-    mapping(uint256 => ItemType) public itemInfo;
-    mapping(uint256 => mapping(address => uint256)) private _beneficiaryRedeemed;
-    mapping(uint256 => mapping(address => uint256)) private _storeRedeemed;
     mapping(address => uint256) public storePendingWei;
 
     // DAO integration: store registry and DAO address
@@ -37,24 +22,19 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
     mapping(uint256 => address) public storeById;
     mapping(address => uint256) public storeIdOf;
 
-    event RoleAssigned(address indexed account, StakeholderType role);
 
-    event ItemTypeCreated(
-        uint256 indexed tokenId,
-        bool isVoucher,
-        address allowedStore,
-        uint256 expiry,
-        uint256 beneficiaryLimit,
-        uint256 storeLimit
-    );
+    //Events
+    event RoleAssigned(address indexed account, StakeholderType role);
 
     event Converted(address indexed organisation, uint256 moneySpent, uint256 indexed tokenId, uint256 amountMinted);
 
     event Assigned(address indexed organisation, address indexed beneficiary, uint256 indexed tokenId, uint256 amount);
 
-    event Redeemed(address indexed store, address indexed beneficiary, uint256 indexed tokenId, uint256 amount);
+    //event Redeemed(address indexed store, address indexed beneficiary, uint256 indexed tokenId, uint256 amount);
 
     event DonorWithdrawal(address indexed donor, uint256 amountWei);
+
+    event Purchased(address indexed beneficiary, address indexed store, uint256 amount);
 
     event StoreWithdrawal(address indexed store, uint256 amountWei);
 
@@ -62,7 +42,7 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
     event DaoContractUpdated(address indexed previousDao, address indexed newDao);
     event StoreApproved(uint256 indexed storeId, address indexed store);
 
-    constructor(string memory uri_) ERC1155(uri_) {
+    constructor(string memory /*uri_*/) ERC20("Aid Token", "AID_TOKEN") {
         // Owner is set by Ownable.
     }
 
@@ -106,13 +86,13 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
     function depositMoney(uint256 amount) external payable nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
         require(msg.value == amount, "Ether sent must equal the specified amount");
-        _mint(msg.sender, TOKEN_MONEY, amount, "");
+        _mint(msg.sender, amount);
     }
 
     function donorWithdrawEther(uint256 amount) external nonReentrant {
         require(roles[msg.sender] == StakeholderType.Donor, "not donor");
         require(amount > 0, "amount=0");
-        _burn(msg.sender, TOKEN_MONEY, amount);
+        _burn(msg.sender, amount);
         (bool ok,) = payable(msg.sender).call{value: amount}("");
         require(ok, "eth send failed");
         emit DonorWithdrawal(msg.sender, amount);
@@ -125,64 +105,35 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
             "Caller must be Donor or Organisation"
         );
         require(roles[organisation] == StakeholderType.Organisation, "Recipient must be an Organisation");
-        safeTransferFrom(msg.sender, organisation, TOKEN_MONEY, amount, "");
+        _transfer(msg.sender, organisation, amount);
     }
 
-    function createItemType(
-        bool isVoucher,
-        address allowedStore,
-        uint256 expiry,
-        uint256 beneficiaryLimit,
-        uint256 storeLimit
-    ) external returns (uint256 tokenId) {
-        require(roles[msg.sender] == StakeholderType.Organisation, "Only an Organisation can create item types");
-        if (isVoucher) {
-            require(allowedStore != address(0), "Voucher must have an allowed store");
-            require(expiry == 0 || expiry > block.timestamp, "Expiry must be in the future if set");
-        }
-        require(beneficiaryLimit > 0 && storeLimit > 0, "Limits must be greater than 0");
+    function assignToBeneficiary(address beneficiary, uint256 amount) 
+        external 
+        nonReentrant 
+        {
+        require(roles[msg.sender] == StakeholderType.Organisation, "caller not organisation");
+        require(roles[beneficiary] == StakeholderType.Beneficiary, "recipient not beneficiary");
+        require(amount > 0, "amount=0");
+        require(balanceOf(msg.sender) >= amount, "insufficient AID_TOKEN");
 
-        tokenId = _nextTokenId++;
-        itemInfo[tokenId] = ItemType({
-            isVoucher: isVoucher,
-            expiry: expiry,
-            allowedStore: allowedStore,
-            beneficiaryLimit: beneficiaryLimit,
-            storeLimit: storeLimit
-        });
-
-        emit ItemTypeCreated(tokenId, isVoucher, allowedStore, expiry, beneficiaryLimit, storeLimit);
+        _transfer(msg.sender, beneficiary, amount);
+        emit Assigned(msg.sender, beneficiary, 0, amount);
     }
 
-    function convertTokenisedMoney(uint256 moneyAmount, uint256 tokenId, uint256 tokenAmount) external nonReentrant {
-        require(roles[msg.sender] == StakeholderType.Organisation, "Caller must be an Organisation");
-        require(tokenId != TOKEN_MONEY, "Target tokenId must not be TOKEN_MONEY");
-        require(
-            itemInfo[tokenId].beneficiaryLimit != 0 || itemInfo[tokenId].storeLimit != 0,
-            "Target token type does not exist"
-        );
-        require(moneyAmount > 0 && tokenAmount > 0, "Amounts must be greater than 0");
-        require(balanceOf(msg.sender, TOKEN_MONEY) >= moneyAmount, "Insufficient tokenised money balance");
+    function purchaseFromStore(address store, uint256 amount) external nonReentrant {
+        require(roles[msg.sender] == StakeholderType.Beneficiary, "caller not beneficiary");
+        require(roles[store] == StakeholderType.Store, "recipient not store");
+        require(amount > 0, "amount=0");
+        require(balanceOf(msg.sender) >= amount, "insufficient AID_TOKEN");
 
-        _burn(msg.sender, TOKEN_MONEY, moneyAmount);
-        _mint(msg.sender, tokenId, tokenAmount, "");
+        // Burn AID_TOKEN from beneficiary
+        _burn(msg.sender, amount);
 
-        emit Converted(msg.sender, moneyAmount, tokenId, tokenAmount);
-    }
+        // Store gets ETH reimbursement credit
+        storePendingWei[store] += amount;
 
-    function assignToBeneficiary(address beneficiary, uint256 tokenId, uint256 amount) external nonReentrant {
-        require(roles[msg.sender] == StakeholderType.Organisation, "Caller must be an Organisation");
-        require(roles[beneficiary] == StakeholderType.Beneficiary, "Recipient must be a Beneficiary");
-        require(tokenId != TOKEN_MONEY, "Cannot assign money tokens to beneficiary");
-        require(
-            itemInfo[tokenId].beneficiaryLimit != 0 || itemInfo[tokenId].storeLimit != 0,
-            "Token type does not exist"
-        );
-        require(amount > 0, "Amount must be greater than 0");
-        require(balanceOf(msg.sender, tokenId) >= amount, "Insufficient token balance to assign");
-
-        safeTransferFrom(msg.sender, beneficiary, tokenId, amount, "");
-        emit Assigned(msg.sender, beneficiary, tokenId, amount);
+        emit Purchased(msg.sender, store, amount);
     }
 
     function storeWithdrawEther(uint256 amount) external nonReentrant {
@@ -194,43 +145,5 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
         (bool ok,) = payable(msg.sender).call{value: amount}("");
         require(ok, "eth send failed");
         emit StoreWithdrawal(msg.sender, amount);
-    }
-
-    function redeem(address beneficiary, uint256 tokenId, uint256 amount) external nonReentrant {
-        require(roles[msg.sender] == StakeholderType.Store, "Caller must be a Store");
-        require(roles[beneficiary] == StakeholderType.Beneficiary, "Target must be a Beneficiary");
-        require(tokenId != TOKEN_MONEY, "Cannot redeem TOKEN_MONEY as goods");
-        require(
-            itemInfo[tokenId].beneficiaryLimit != 0 || itemInfo[tokenId].storeLimit != 0,
-            "Token type does not exist"
-        );
-        require(amount > 0, "Amount must be greater than 0");
-
-        ItemType storage item = itemInfo[tokenId];
-
-        if (item.isVoucher) {
-            if (item.allowedStore != address(0)) {
-                require(item.allowedStore == msg.sender, "This voucher cannot be redeemed at this store");
-            }
-            if (item.expiry != 0) {
-                require(block.timestamp <= item.expiry, "Voucher has expired");
-            }
-        }
-
-        uint256 newBeneficiaryTotal = _beneficiaryRedeemed[tokenId][beneficiary] + amount;
-        require(newBeneficiaryTotal <= item.beneficiaryLimit, "Beneficiary redemption limit exceeded");
-
-        uint256 newStoreTotal = _storeRedeemed[tokenId][msg.sender] + amount;
-        require(newStoreTotal <= item.storeLimit, "Store redemption limit exceeded");
-
-        require(balanceOf(beneficiary, tokenId) >= amount, "Beneficiary lacks enough tokens");
-
-        _burn(beneficiary, tokenId, amount);
-        _beneficiaryRedeemed[tokenId][beneficiary] = newBeneficiaryTotal;
-        _storeRedeemed[tokenId][msg.sender] = newStoreTotal;
-
-        storePendingWei[msg.sender] += amount;
-
-        emit Redeemed(msg.sender, beneficiary, tokenId, amount);
     }
 }
