@@ -458,4 +458,45 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
       ).to.be.revertedWith("insufficient pending");
     });
   });
+
+  // FULL WORKFLOW INTEGRATION TEST
+  describe("Full Workflow Integration Test", function () {
+    it("Executes full donation: assignment - purchase - store withdrawal workflow", async () => {
+      // Step 1: Donor deposits
+      await aidDistribution.connect(donor).depositMoney(ONE);
+      expect(await aidDistribution.balanceOf(donor.address)).to.equal(ONE);
+
+      // Step 2: Donor assigns to Organisation
+      await aidDistribution
+        .connect(donor)
+        .assignToOrganisation(organisation.address, ONE);
+      expect(await aidDistribution.balanceOf(organisation.address)).to.equal(ONE);
+
+      // Step 3: Organisation assigns to Beneficiary
+      await aidDistribution
+        .connect(organisation)
+        .assignToBeneficiary(beneficiary.address, ONE);
+      expect(await aidDistribution.balanceOf(beneficiary.address)).to.equal(ONE);
+
+      // Step 4: Beneficiary purchases at Store
+      await aidDistribution
+        .connect(beneficiary)
+        .purchaseFromStore(store.address, ONE);
+
+      expect(await aidDistribution.balanceOf(beneficiary.address)).to.equal(0);
+      expect(await aidDistribution.storePendingSGD(store.address)).to.equal(ONE);
+
+      // Step 5: Store withdraws pending SGD
+      const balanceBefore = await mockSGD.balanceOf(store.address);
+      await aidDistribution.connect(store).storeWithdrawEther(ONE);
+      const balanceAfter = await mockSGD.balanceOf(store.address);
+
+      expect(balanceAfter - balanceBefore).to.equal(ONE);
+
+      // Step 6: Final state checks
+      expect(await aidDistribution.storePendingSGD(store.address)).to.equal(0);
+      expect(await aidDistribution.totalSupply()).to.equal(0); // All tokens burned
+    });
+  });
+
 });
