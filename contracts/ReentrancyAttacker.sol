@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 interface IAid {
-    function storeWithdrawEther(uint256 amount) external;
+    function storeWithdrawSGD(uint256 amount) external;
 }
 
 contract ReentrancyAttacker {
@@ -16,11 +16,11 @@ contract ReentrancyAttacker {
     receive() external payable {
         if (!attacked) {
             attacked = true;
-            aid.storeWithdrawEther(1);
+            aid.storeWithdrawSGD(1);
         }
     }
 
     function attack() external {
-        aid.storeWithdrawEther(1);
+        aid.storeWithdrawSGD(1);
     }
 }

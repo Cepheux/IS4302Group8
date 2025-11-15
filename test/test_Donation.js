@@ -82,7 +82,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
       await aidDistribution.connect(donor).depositMoney(ONE);
 
       const before = await mockSGD.balanceOf(donor.address);
-      await aidDistribution.connect(donor).donorWithdrawEther(HALF);
+      await aidDistribution.connect(donor).donorWithdrawSGD(HALF);
       const after = await mockSGD.balanceOf(donor.address);
 
       expect(after - before).to.equal(HALF);
@@ -90,7 +90,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
 
     it("Non-donor cannot withdraw", async () => {
       await expect(
-        aidDistribution.connect(organisation).donorWithdrawEther(ONE)
+        aidDistribution.connect(organisation).donorWithdrawSGD(ONE)
       ).to.be.revertedWith("not donor");
     });
   });
@@ -190,7 +190,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
     it("Store withdraws its pending SGD", async () => {
       const before = await mockSGD.balanceOf(store.address);
 
-      await aidDistribution.connect(store).storeWithdrawEther(HALF);
+      await aidDistribution.connect(store).storeWithdrawSGD(HALF);
       const after = await mockSGD.balanceOf(store.address);
 
       expect(after - before).to.equal(HALF);
@@ -198,13 +198,13 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
 
     it("Cannot withdraw more than pending", async () => {
       await expect(
-        aidDistribution.connect(store).storeWithdrawEther(ONE + 1n)
+        aidDistribution.connect(store).storeWithdrawSGD(ONE + 1n)
       ).to.be.revertedWith("insufficient pending");
     });
 
     it("Non-store cannot withdraw", async () => {
       await expect(
-        aidDistribution.connect(beneficiary).storeWithdrawEther(1)
+        aidDistribution.connect(beneficiary).storeWithdrawSGD(1)
       ).to.be.revertedWith("not store");
     });
   });
@@ -235,7 +235,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
     it("Emits DonorWithdrawal", async () => {
       await aidDistribution.connect(donor).depositMoney(ONE);
 
-      await expect(aidDistribution.connect(donor).donorWithdrawEther(ONE))
+      await expect(aidDistribution.connect(donor).donorWithdrawSGD(ONE))
         .to.emit(aidDistribution, "DonorWithdrawal")
         .withArgs(donor.address, ONE);
     });
@@ -324,7 +324,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
         .purchaseFromStore(store.address, ONE);
 
       await expect(
-        aidDistribution.connect(anotherStore).storeWithdrawEther(1)
+        aidDistribution.connect(anotherStore).storeWithdrawSGD(1)
       ).to.be.revertedWith("insufficient pending");
     });
 
@@ -346,7 +346,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
         .connect(beneficiary)
         .purchaseFromStore(store.address, ONE);
 
-      await expect(aidDistribution.connect(store).storeWithdrawEther(1))
+      await expect(aidDistribution.connect(store).storeWithdrawSGD(1))
         .to.emit(aidDistribution, "StoreWithdrawal")
         .withArgs(store.address, 1);
     });
@@ -398,7 +398,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
 
     it("Only donor can withdraw SGD", async () => {
       await expect(
-        aidDistribution.connect(store).donorWithdrawEther(ONE)
+        aidDistribution.connect(store).donorWithdrawSGD(ONE)
       ).to.be.revertedWith("not donor");
     });
 
@@ -410,7 +410,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
 
     it("Only stores can withdraw pending SGD", async () => {
       await expect(
-        aidDistribution.connect(donor).storeWithdrawEther(1)
+        aidDistribution.connect(donor).storeWithdrawSGD(1)
       ).to.be.revertedWith("not store");
     });
 
@@ -422,7 +422,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
 
     it("Store cannot withdraw without pending balance", async () => {
       await expect(
-        aidDistribution.connect(store).storeWithdrawEther(1)
+        aidDistribution.connect(store).storeWithdrawSGD(1)
       ).to.be.revertedWith("insufficient pending");
     });
 
@@ -434,7 +434,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
 
     it("Malicious donor cannot withdraw without balance", async () => {
       await expect(
-        aidDistribution.connect(donor).donorWithdrawEther(1)
+        aidDistribution.connect(donor).donorWithdrawSGD(1)
       ).to.be.revertedWith("ERC20: burn amount exceeds balance");
     });
 
@@ -454,7 +454,7 @@ describe("AidDistribution Contract Tests (SGD version)", function () {
         .purchaseFromStore(store.address, ONE);
 
       await expect(
-        aidDistribution.connect(anotherStore).storeWithdrawEther(1)
+        aidDistribution.connect(anotherStore).storeWithdrawSGD(1)
       ).to.be.revertedWith("insufficient pending");
     });
   });

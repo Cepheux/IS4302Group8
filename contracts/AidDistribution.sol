@@ -85,6 +85,7 @@ contract AidDistribution is ERC20, Ownable, ReentrancyGuard {
         emit RoleAssigned(account, role);
     }
 
+    //Donor functions: deposit SGD and mint AID_TOKEN
     function depositMoney(uint256 amount) external nonReentrant {
         require(amount > 0, "amount=0");
         bool ok = sgdToken.transferFrom(msg.sender, address(this), amount);
@@ -92,7 +93,8 @@ contract AidDistribution is ERC20, Ownable, ReentrancyGuard {
         _mint(msg.sender, amount);
     }
 
-    function donorWithdrawEther(uint256 amount) external nonReentrant {
+    //Donor functions: withdraw SGD and burn AID_TOKEN
+    function donorWithdrawSGD(uint256 amount) external nonReentrant {
         require(roles[msg.sender] == StakeholderType.Donor, "not donor");
         require(amount > 0, "amount=0");
         _burn(msg.sender, amount);
@@ -100,7 +102,7 @@ contract AidDistribution is ERC20, Ownable, ReentrancyGuard {
         require(ok, "SGD transfer failed");
         emit DonorWithdrawal(msg.sender, amount);
     }
-
+    //
     function assignToOrganisation(address organisation, uint256 amount) external nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
         require(
@@ -124,6 +126,7 @@ contract AidDistribution is ERC20, Ownable, ReentrancyGuard {
         emit Assigned(msg.sender, beneficiary, 0, amount);
     }
 
+    
     function purchaseFromStore(address store, uint256 amount) external nonReentrant {
         require(roles[msg.sender] == StakeholderType.Beneficiary, "not beneficiary");
         require(roles[store] == StakeholderType.Store, "not store");
@@ -134,7 +137,7 @@ contract AidDistribution is ERC20, Ownable, ReentrancyGuard {
         emit Purchased(msg.sender, store, amount);
     }
 
-    function storeWithdrawEther(uint256 amount) external nonReentrant {
+    function storeWithdrawSGD(uint256 amount) external nonReentrant {
         require(roles[msg.sender] == StakeholderType.Store, "not store");
         require(amount > 0, "amount=0");
         require(storePendingSGD[msg.sender] >= amount, "insufficient pending");

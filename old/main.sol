@@ -101,7 +101,7 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
      *   contract ETH decreases by the same amount.
      *
      * Example:
-     * - Donor calls donorWithdrawEther(1 ether); upon success this event logs
+     * - Donor calls donorWithdrawSGD(1 ether); upon success this event logs
      *   (donor=0xAB..., amountWei=1e18).
      */
     event DonorWithdrawal(address indexed donor, uint256 amountWei);
@@ -116,7 +116,7 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
      * - Decreases storePendingWei[store] by amountWei and contract ETH by amountWei.
      *
      * Example:
-     * - Store calls storeWithdrawEther(0.5 ether); upon success this event logs
+     * - Store calls storeWithdrawSGD(0.5 ether); upon success this event logs
      *   (store=0xCD..., amountWei=5e17).
      */
     event StoreWithdrawal(address indexed store, uint256 amountWei);
@@ -204,10 +204,10 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
      *
      * Example
      * - Pre: donor has 3 ether worth of TOKEN_MONEY, contract holds ≥3 ETH.
-     * - Call: donorWithdrawEther(2 ether).
+     * - Call: donorWithdrawSGD(2 ether).
      * - Post: donor’s TOKEN_MONEY -= 2e18; donor’s ETH += 2e18; event emitted.
      */
-    function donorWithdrawEther(uint256 amount) external nonReentrant {
+    function donorWithdrawSGD(uint256 amount) external nonReentrant {
         require(roles[msg.sender] == StakeholderType.Donor, "not donor");
         require(amount > 0, "amount=0");
         _burn(msg.sender, TOKEN_MONEY, amount);
@@ -383,10 +383,10 @@ contract AidDistribution is ERC1155, Ownable, ReentrancyGuard {
      *
      * Example
      * - Pre: storePendingWei[store] = 1 ether.
-     * - Call: storeWithdrawEther(0.4 ether).
+     * - Call: storeWithdrawSGD(0.4 ether).
      * - Post: storePendingWei[store] = 0.6 ether; store receives 0.4 ether; event emitted.
      */
-    function storeWithdrawEther(uint256 amount) external nonReentrant {
+    function storeWithdrawSGD(uint256 amount) external nonReentrant {
     require(roles[msg.sender] == StakeholderType.Store, "not store");
     require(amount > 0, "amount=0");
     uint256 owed = storePendingWei[msg.sender];
